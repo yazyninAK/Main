@@ -44,8 +44,16 @@ def send_email(subject: str, body: str) -> None:
 def notify_new_post(post: dict) -> None:
     title = post.get("title", "(без заголовка)")
     url = post.get("url", "")
-    text = post.get("text", "")
+    price = post.get("price", "")
+    seller = post.get("seller", "")
 
-    message = f"Новое объявление:\n{title}\n{url}\n\n{text}".strip()
+    lines = ["Новое объявление:", title]
+    if price:
+        lines.append(f"Цена: {price}")
+    if seller:
+        lines.append(seller)
+    lines.append(url)
+
+    message = "\n".join(lines)
     send_telegram(message)
     send_email(f"Новое объявление: {title}", message)

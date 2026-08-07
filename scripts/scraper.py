@@ -1,12 +1,12 @@
-"""Fetch and parse post listings from the target site.
-
-NOTE: The selectors below are placeholders. They must be adjusted to match
-the real HTML structure of the target page before this will find any posts.
-"""
+"""Fetch and parse post listings from 2bike.rs (cikloberza mali oglasi)."""
 from __future__ import annotations
+
+import re
 
 import requests
 from bs4 import BeautifulSoup
+
+BASE_URL = "https://2bike.rs"
 
 HEADERS = {
     "User-Agent": (
@@ -15,23 +15,69 @@ HEADERS = {
     )
 }
 
+FAV_ID_RE = re.compile(r"add_favorite_classified/(\d+)")
 
-class ScraperNotConfigured(RuntimeError):
-    pass
+
+def _absolute_url(href: str) -> str:
+    if href.startswith("http"):
+        return href
+    return BASE_URL + href
 
 
 def fetch_posts(url: str) -> list[dict]:
-    """Return a list of posts: {"id": str, "title": str, "url": str, "text": str}.
+    """Return listing-page posts: id, title, url, price, seller.
 
-    "id" must be a stable identifier for the post (e.g. its URL) so we can
-    detect which posts were already seen on previous runs.
+    Only reads the first results page. The listing is sorted by "date
+    posted/renewed" descending by default, so new posts appear at the top.
     """
     resp = requests.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "lxml")
 
-    # TODO: replace with real selectors once the page markup is known.
-    raise ScraperNotConfigured(
-        "scraper.py: selectors are not configured yet for this site. "
-        "Inspect the page HTML and update fetch_posts() in scripts/scraper.py."
-    )
+    posts = []
+    for item in soup.select("ul.itemsGrid > li"):
+        title_link = item.select_one("h2 a")
+        if not title_link:
+            continue
+
+        title = title_link.get_text(strip=True)
+        post_url = _absolute_url(title_link.get("href", ""))
+
+        fav_link = item.select_one("a.clsfdaddtofavs")
+        post_id = None
+        if fav_link and fav_link.get("data-href-add"):
+            m = FAV_ID_RE.search(fav_link["data-href-add"])
+            if m:
+                post_id = m.group(1)
+        if not post_id:
+            post_id = post_url
+
+        price_el = item.select_one(".strp em")
+        price = price_el.get_text(" ", strip=True) if price_el else ""
+
+        seller_el = item.select_one(".dsc span")
+        seller = seller_el.get_text(" ", strip=True) if seller_el else ""
+
+        posts.append(
+            {
+                "id": post_id,
+                "title": title,
+                "url": post_url,
+                "price": price,
+                "seller": seller,
+                "text": title,  # replaced with full detail text for new posts
+            }
+        )
+    return posts
+
+
+def fetch_detail_text(url: str) -> str:
+    """Return the visible text of a single ad's page, for keyword matching."""
+    resp = requests.get(url, headers=HEADERS, timeout=30)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "lxml")
+
+    for tag in soup(["script", "style", "nav", "header", "footer"]):
+        tag.decompose()
+
+    return " ".join(soup.get_text(" ", strip=True).split())
