@@ -7,6 +7,7 @@ import time
 
 import yaml
 
+from criteria import matches_criteria
 from notify import notify_new_post
 from scraper import build_listing_url, fetch_detail_text, fetch_posts, page_url
 
@@ -114,7 +115,9 @@ def main() -> None:
                 detail_text = ""
             post["text"] = f"{post['title']} {detail_text}"
 
-            if matches_filters(post["text"], config):
+            if matches_filters(post["text"], config) and matches_criteria(
+                post["text"], config.get("criteria", {})
+            ):
                 matched.append(post)
 
             time.sleep(DETAIL_FETCH_DELAY_SECONDS)
