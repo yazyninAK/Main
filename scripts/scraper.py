@@ -34,6 +34,19 @@ _session.headers.update(HEADERS)
 _warmed_up = False
 
 
+def _debug_response(resp: requests.Response) -> None:
+    """Print diagnostic info on a failed response, to tell apart a WAF/CDN
+    block (Cloudflare etc.) from a plain server-side 403."""
+    interesting_headers = {
+        k: v
+        for k, v in resp.headers.items()
+        if k.lower() in ("server", "cf-ray", "cf-mitigated", "x-sucuri-id", "content-type")
+    }
+    print(f"DEBUG: {resp.request.method} {resp.url} -> {resp.status_code}")
+    print(f"DEBUG: response headers of interest: {interesting_headers}")
+    print(f"DEBUG: body snippet: {resp.text[:500]!r}")
+
+
 def _warm_up() -> None:
     """Visit the homepage once per run before hitting category/detail pages,
     so any cookie the site sets on first contact is already in the session."""
@@ -41,9 +54,12 @@ def _warm_up() -> None:
     if _warmed_up:
         return
     try:
-        _session.get(BASE_URL, timeout=30)
-    except requests.RequestException:
-        pass
+        resp = _session.get(BASE_URL, timeout=30)
+        print(f"DEBUG: warm-up GET {BASE_URL} -> {resp.status_code}")
+        if not resp.ok:
+            _debug_response(resp)
+    except requests.RequestException as exc:
+        print(f"DEBUG: warm-up request failed: {exc}")
     _warmed_up = True
 
 
@@ -53,6 +69,8 @@ def _get(url: str, retries: int = 2, backoff_seconds: float = 3.0) -> requests.R
     for attempt in range(retries + 1):
         try:
             resp = _session.get(url, headers={"Referer": BASE_URL + "/"}, timeout=30)
+            if not resp.ok:
+                _debug_response(resp)
             resp.raise_for_status()
             return resp
         except requests.RequestException as exc:
