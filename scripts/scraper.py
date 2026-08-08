@@ -55,26 +55,38 @@ def close_browser() -> None:
     _playwright = _browser = _context = None
 
 
+def _is_challenged(response) -> bool:
+    """True if this response is Cloudflare's JS challenge interstitial.
+
+    Checked via the cf-mitigated response header (language-independent) -
+    the challenge page's <title> is localized (e.g. Serbian "Sačekajte
+    trenutak...", English "Just a moment..."), so matching on title text
+    is unreliable.
+    """
+    return bool(response and response.headers.get("cf-mitigated") == "challenge")
+
+
 def _get_html(url: str, wait_selector: str, timeout_ms: int = 45000) -> str:
     """Load a page with a real browser, waiting out Cloudflare's JS
     challenge if one appears, and return the final rendered HTML."""
     _ensure_browser()
     page = _context.new_page()
     try:
-        page.goto(url, timeout=timeout_ms, wait_until="load")
-        print(f"DEBUG: goto {url} -> title={page.title()!r}")
-        for attempt in range(4):
-            if "Just a moment" not in page.title():
+        response = page.goto(url, timeout=timeout_ms, wait_until="load")
+        for attempt in range(6):
+            print(
+                f"DEBUG: attempt {attempt + 1}: url={page.url} title={page.title()!r} "
+                f"cf-mitigated={response.headers.get('cf-mitigated') if response else None!r}"
+            )
+            if not _is_challenged(response):
                 break
-            print(f"DEBUG: still on challenge page (attempt {attempt + 1}/4), waiting + reloading")
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(6000)
             try:
-                page.reload(wait_until="load", timeout=timeout_ms)
-                print(f"DEBUG: after reload -> title={page.title()!r}")
+                response = page.reload(wait_until="load", timeout=timeout_ms)
             except PlaywrightTimeoutError:
                 break
         try:
-            page.wait_for_selector(wait_selector, timeout=15000)
+            page.wait_for_selector(wait_selector, timeout=20000)
         except PlaywrightTimeoutError:
             print(
                 f"DEBUG: wait_for_selector({wait_selector!r}) timed out; "
