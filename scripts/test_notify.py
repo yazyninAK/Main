@@ -6,7 +6,7 @@ from __future__ import annotations
 from notify import notify_new_post
 
 TEST_POST = {
-    "title": "[ТЕСТ] Cube Reaction Pro 1x12 (XL) -800Wh,Cx5,Papiri,2026",
+    "title": "Cube Reaction Pro 1x12 (XL) -800Wh,Cx5,Papiri,2026",
     "url": (
         "https://2bike.rs/cikloberza/mali-oglasi/bicikli-6/"
         "elektricni-bicikli-13/cube-reaction-pro-1x12-xl-800wh-cx5-papiri-2026"

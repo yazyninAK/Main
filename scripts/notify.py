@@ -48,21 +48,26 @@ def create_github_issue(title: str, body: str) -> None:
         print(f"GitHub issue notification failed: {resp.status_code} {resp.text}")
 
 
-def notify_new_post(post: dict) -> None:
-    title = post.get("title", "(без заголовка)")
+def build_message(post: dict) -> str:
+    title = post.get("title") or "(без заголовка)"
+    price = post.get("price") or "не указана"
+    seller = post.get("seller") or "не указан"
     url = post.get("url", "")
-    price = post.get("price", "")
-    seller = post.get("seller", "")
+
+    return (
+        "Новое объявление\n\n"
+        f"Название: {title}\n"
+        f"Цена: {price}\n"
+        f"Продавец: {seller}\n"
+        f"Ссылка: {url}"
+    )
+
+
+def notify_new_post(post: dict) -> None:
+    title = post.get("title") or "(без заголовка)"
     notify_user = os.environ.get("GITHUB_NOTIFY_USER", "")
 
-    lines = ["Новое объявление:", title]
-    if price:
-        lines.append(f"Цена: {price}")
-    if seller:
-        lines.append(seller)
-    lines.append(url)
-
-    message = "\n".join(lines)
+    message = build_message(post)
     send_telegram(message)
 
     issue_body = message

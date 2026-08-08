@@ -18,6 +18,18 @@ HEADERS = {
 
 FAV_ID_RE = re.compile(r"add_favorite_classified/(\d+)")
 
+
+def _absolute_url(href: str) -> str:
+    if href.startswith("http"):
+        return href
+    return BASE_URL + href
+
+
+def _clean(text: str) -> str:
+    """Collapse any run of whitespace (incl. stray tabs/newlines the site's
+    markup sometimes leaves in a single text node) into single spaces."""
+    return " ".join(text.split())
+
 # Bicycle brand ("PROIZVOĐAČ") filter ids, as used by the site's own
 # left-side filter panel (query param bra[]=<id>). Scraped from the
 # category filter sidebar; extend this if the site adds a brand that's
@@ -98,7 +110,7 @@ def fetch_posts(url: str) -> list[dict]:
         if not title_link:
             continue
 
-        title = title_link.get_text(strip=True)
+        title = _clean(title_link.get_text(" ", strip=True))
         post_url = _absolute_url(title_link.get("href", ""))
 
         fav_link = item.select_one("a.clsfdaddtofavs")
@@ -111,10 +123,10 @@ def fetch_posts(url: str) -> list[dict]:
             post_id = post_url
 
         price_el = item.select_one(".strp em")
-        price = price_el.get_text(" ", strip=True) if price_el else ""
+        price = _clean(price_el.get_text(" ", strip=True)) if price_el else ""
 
         seller_el = item.select_one(".dsc span")
-        seller = seller_el.get_text(" ", strip=True) if seller_el else ""
+        seller = _clean(seller_el.get_text(" ", strip=True)) if seller_el else ""
 
         posts.append(
             {
