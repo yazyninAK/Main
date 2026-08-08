@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlencode
 
 import requests
 from bs4 import BeautifulSoup
@@ -17,11 +18,61 @@ HEADERS = {
 
 FAV_ID_RE = re.compile(r"add_favorite_classified/(\d+)")
 
+# Bicycle brand ("PROIZVOĐAČ") filter ids, as used by the site's own
+# left-side filter panel (query param bra[]=<id>). Scraped from the
+# category filter sidebar; extend this if the site adds a brand that's
+# missing here.
+BRAND_IDS = {
+    "Alpina": 552, "BMC": 79, "Batavus": 575, "Bergamont": 577, "Bianchi": 536,
+    "Bosch": 578, "Bulls": 537, "Cannondale": 95, "Canyon": 524, "Capriolo": 517,
+    "Centurion": 579, "Cervelo": 100, "Colnago": 113, "Commencal": 115,
+    "Corratec": 120, "Cube": 127, "Felt": 178, "Focus": 540, "Fuji": 199,
+    "GT": 221, "Gazelle": 601, "Genesis": 542, "Ghost": 211, "Giant": 212,
+    "KTM": 530, "Kettler": 602, "Koga": 258, "Kona": 259,
+    "Light and Motion": 267, "Lizard Skins": 268, "Look": 271, "Merida": 526,
+    "Nukeproof": 318, "Orca": 327, "Pinarello": 336, "Polar": 340,
+    "Raleigh": 360, "Ridley": 372, "Scott": 394, "Scout": 584, "Shimano": 403,
+    "Simplon": 585, "Specialized": 543, "Stevens": 551, "Trek": 514,
+    "Univega": 588, "Vitus Bikes": 490, "Wheeler": 545, "Wilier": 589,
+    "Winora": 590,
+}
 
-def _absolute_url(href: str) -> str:
-    if href.startswith("http"):
-        return href
-    return BASE_URL + href
+
+def build_listing_url(site_config: dict) -> str:
+    """Build the listing URL from named filter fields (config.yaml `site:`).
+
+    Mirrors the site's own left-side filter panel: hide_sold -> hideSold=1,
+    hide_no_price -> hasPrice=1, brands -> bra[]=<id> (see BRAND_IDS),
+    price_min/price_max/price_currency -> prfr/prto/prcu.
+    """
+    base = site_config["category_url"]
+    params: list[tuple[str, str]] = []
+
+    if site_config.get("hide_sold"):
+        params.append(("hideSold", "1"))
+    if site_config.get("hide_no_price"):
+        params.append(("hasPrice", "1"))
+
+    for brand in site_config.get("brands") or []:
+        brand_id = BRAND_IDS.get(brand)
+        if brand_id is None:
+            known = ", ".join(sorted(BRAND_IDS))
+            raise ValueError(f"Unknown brand '{brand}' in config.yaml. Known brands: {known}")
+        params.append(("bra[]", str(brand_id)))
+
+    price_min = site_config.get("price_min")
+    price_max = site_config.get("price_max")
+    if price_min is not None:
+        params.append(("prfr", str(price_min)))
+    if price_max is not None:
+        params.append(("prto", str(price_max)))
+    if price_min is not None or price_max is not None:
+        params.append(("prcu", site_config.get("price_currency", "EUR")))
+
+    if not params:
+        return base
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}{urlencode(params)}"
 
 
 def page_url(url: str, page: int) -> str:

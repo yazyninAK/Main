@@ -8,7 +8,7 @@ import time
 import yaml
 
 from notify import notify_new_post
-from scraper import fetch_detail_text, fetch_posts, page_url
+from scraper import build_listing_url, fetch_detail_text, fetch_posts, page_url
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
@@ -88,7 +88,8 @@ def main() -> None:
     is_first_run = not STATE_PATH.exists()
     seen_ids, max_known_id = load_state()
 
-    posts = fetch_new_listing_posts(config["url"], seen_ids)
+    listing_url = build_listing_url(config["site"])
+    posts = fetch_new_listing_posts(listing_url, seen_ids)
 
     # A post only counts as genuinely new if we haven't recorded its id
     # before AND its id is higher than any id we've seen so far. The second
