@@ -54,13 +54,13 @@ def build_message(post: dict) -> str:
     seller = post.get("seller") or "не указан"
     url = post.get("url", "")
 
-    return (
-        "Новое объявление\n\n"
-        f"Название: {title}\n"
-        f"Цена: {price}\n"
-        f"Продавец: {seller}\n"
-        f"Ссылка: {url}"
-    )
+    blocks = [
+        "Новое объявление",
+        f"Название: {title}",
+        f"Цена: {price}\nПродавец: {seller}",
+        f"Ссылка: {url}",
+    ]
+    return "\n\n".join(blocks)
 
 
 def notify_new_post(post: dict) -> None:
