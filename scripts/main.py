@@ -8,7 +8,7 @@ import time
 import yaml
 
 from notify import notify_new_post
-from scraper import fetch_detail_text, fetch_posts
+from scraper import fetch_detail_text, fetch_posts, page_url
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
@@ -16,8 +16,24 @@ STATE_PATH = ROOT / "data" / "seen.json"
 
 # Safety cap on how many new posts get a detail-page fetch in one run,
 # to avoid hammering the site if a lot of new posts appear at once.
-MAX_DETAIL_FETCHES_PER_RUN = 20
+MAX_DETAIL_FETCHES_PER_RUN = 30
 DETAIL_FETCH_DELAY_SECONDS = 1.5
+
+# Listing is sorted newest-first, so we page forward only until we hit a
+# post we've already seen (or run out of pages / hit this safety cap).
+MAX_LISTING_PAGES = 10
+
+
+def fetch_new_listing_posts(base_url: str, seen: set[str]) -> list[dict]:
+    all_posts: list[dict] = []
+    for page in range(1, MAX_LISTING_PAGES + 1):
+        posts = fetch_posts(page_url(base_url, page))
+        if not posts:
+            break
+        all_posts.extend(posts)
+        if any(p["id"] in seen for p in posts):
+            break
+    return all_posts
 
 
 def load_config() -> dict:
@@ -51,7 +67,7 @@ def main() -> None:
     config = load_config()
     seen = load_seen()
 
-    posts = fetch_posts(config["url"])
+    posts = fetch_new_listing_posts(config["url"], seen)
     new_posts = [p for p in posts if p["id"] not in seen]
 
     matched = []

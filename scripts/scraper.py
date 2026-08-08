@@ -24,11 +24,18 @@ def _absolute_url(href: str) -> str:
     return BASE_URL + href
 
 
-def fetch_posts(url: str) -> list[dict]:
-    """Return listing-page posts: id, title, url, price, seller.
+def page_url(url: str, page: int) -> str:
+    if page <= 1:
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}page={page}"
 
-    Only reads the first results page. The listing is sorted by "date
-    posted/renewed" descending by default, so new posts appear at the top.
+
+def fetch_posts(url: str) -> list[dict]:
+    """Return one results page of posts: id, title, url, price, seller.
+
+    The listing is sorted by "date posted/renewed" descending by default,
+    so new posts appear at the top of page 1.
     """
     resp = requests.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
