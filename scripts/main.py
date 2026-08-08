@@ -84,14 +84,25 @@ def matches_filters(text: str, profile: dict) -> bool:
     return True
 
 
-def matched_filter_names(text: str, filters: list[dict]) -> list[str]:
+def matched_filter_names(post: dict, filters: list[dict]) -> list[str]:
     """Names of every filter profile (from config.yaml `filters:`) that
-    this text matches. A post can match more than one profile."""
+    this post matches. A post can match more than one profile."""
     names = []
     for profile in filters:
-        if matches_filters(text, profile) and matches_criteria(text, profile.get("criteria", {})):
+        if matches_filters(post["text"], profile) and matches_criteria(post, profile.get("criteria", {})):
             names.append(profile.get("name", "(без имени)"))
     return names
+
+
+def fetch_posts_for_all_filters(filters: list[dict], seen_ids: set[str]) -> list[dict]:
+    """Each filter profile has its own `site` (category/URL) - fetch each
+    distinct listing URL once and pool the results, deduped by post id."""
+    urls = {build_listing_url(profile["site"]) for profile in filters}
+    posts_by_id: dict[str, dict] = {}
+    for url in urls:
+        for post in fetch_new_listing_posts(url, seen_ids):
+            posts_by_id.setdefault(post["id"], post)
+    return list(posts_by_id.values())
 
 
 def main() -> None:
@@ -99,8 +110,7 @@ def main() -> None:
     is_first_run = not STATE_PATH.exists()
     seen_ids, max_known_id = load_state()
 
-    listing_url = build_listing_url(config["site"])
-    posts = fetch_new_listing_posts(listing_url, seen_ids)
+    posts = fetch_posts_for_all_filters(config.get("filters", []), seen_ids)
 
     # A post only counts as genuinely new if we haven't recorded its id
     # before AND its id is higher than any id we've seen so far. The second
@@ -125,7 +135,7 @@ def main() -> None:
                 detail_text = ""
             post["text"] = f"{post['title']} {detail_text}"
 
-            names = matched_filter_names(post["text"], config.get("filters", []))
+            names = matched_filter_names(post, config.get("filters", []))
             if names:
                 post["matched_filters"] = names
                 matched.append(post)

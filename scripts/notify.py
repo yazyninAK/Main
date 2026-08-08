@@ -110,3 +110,44 @@ def notify_new_post(post: dict) -> None:
     if notify_user:
         issue_body += f"\n\n@{notify_user}"
     create_github_issue(f"{filter_prefix}Новое объявление: {title}", issue_body)
+
+
+def _chunk_lines(lines: list[str], max_len: int = 3500) -> list[str]:
+    """Group lines into chunks under max_len chars, to stay under Telegram's
+    ~4096 char message limit for long digests."""
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for line in lines:
+        line_len = len(line) + 1
+        if current and current_len + line_len > max_len:
+            chunks.append("\n".join(current))
+            current, current_len = [], 0
+        current.append(line)
+        current_len += line_len
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
+
+
+def notify_digest(title: str, posts: list[dict]) -> None:
+    """Send a single numbered list of post links, instead of one
+    notification per post - used for manual bulk/test scans."""
+    header_plain = f"{title} — найдено: {len(posts)}"
+
+    telegram_items = [
+        f'{i}. <a href="{p["url"]}">{_escape_html(p.get("title") or p["url"])}</a>'
+        for i, p in enumerate(posts, 1)
+    ]
+    telegram_chunks = _chunk_lines(telegram_items) or ["(ничего не найдено)"]
+    header_html = f"<b>{_escape_html(header_plain)}</b>"
+    total = len(telegram_chunks)
+    for idx, chunk in enumerate(telegram_chunks, 1):
+        prefix = header_html if total == 1 else f"{header_html} ({idx}/{total})"
+        send_telegram(f"{prefix}\n\n{chunk}")
+
+    issue_items = [
+        f"{i}. [{p.get('title') or p['url']}]({p['url']})" for i, p in enumerate(posts, 1)
+    ]
+    issue_body = f"**{header_plain}**\n\n" + ("\n".join(issue_items) or "(ничего не найдено)")
+    create_github_issue(title, issue_body)
