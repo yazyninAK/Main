@@ -68,12 +68,18 @@ def numeric_id(post: dict) -> int | None:
         return None
 
 
-def matches_filters(text: str, filters: list[dict]) -> bool:
+def matches_filters(text: str, config: dict) -> bool:
     haystack = text.lower()
-    for group in filters:
+
+    exclude_any = config.get("exclude_any", [])
+    if any(word.lower() in haystack for word in exclude_any):
+        return False
+
+    for group in config.get("must_include", []):
         candidates = group.get("any_of", [])
         if not any(word.lower() in haystack for word in candidates):
             return False
+
     return True
 
 
@@ -107,7 +113,7 @@ def main() -> None:
                 detail_text = ""
             post["text"] = f"{post['title']} {detail_text}"
 
-            if matches_filters(post["text"], config.get("filters", [])):
+            if matches_filters(post["text"], config):
                 matched.append(post)
 
             time.sleep(DETAIL_FETCH_DELAY_SECONDS)
