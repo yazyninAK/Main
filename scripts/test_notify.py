@@ -13,6 +13,7 @@ TEST_POST = {
     ),
     "price": "BEZ CENE (не указана)",
     "seller": "(aleksaloznica) - Loznica, RS",
+    "matched_filters": ["Bosch Gen5, M/L, 700Wh+, до 1500км"],
 }
 
 if __name__ == "__main__":

@@ -65,9 +65,12 @@ def build_telegram_message(post: dict) -> str:
     price = _escape_html(post.get("price") or "не указана")
     seller = _escape_html(post.get("seller") or "не указан")
     url = post.get("url", "")
+    filter_names = _escape_html(", ".join(post.get("matched_filters", [])))
 
-    blocks = [
-        "<b>Новое объявление</b>",
+    blocks = ["<b>Новое объявление</b>"]
+    if filter_names:
+        blocks.append(f"<b>Фильтр:</b> {filter_names}")
+    blocks += [
         f"<b>Название:</b> {title}",
         f"<b>Цена:</b> {price}\n<b>Продавец:</b> {seller}",
         f"<b>Ссылка:</b> {url}",
@@ -81,9 +84,12 @@ def build_issue_body(post: dict) -> str:
     price = post.get("price") or "не указана"
     seller = post.get("seller") or "не указан"
     url = post.get("url", "")
+    filter_names = ", ".join(post.get("matched_filters", []))
 
-    blocks = [
-        "**Новое объявление**",
+    blocks = ["**Новое объявление**"]
+    if filter_names:
+        blocks.append(f"**Фильтр:** {filter_names}")
+    blocks += [
         f"**Название:** {title}",
         f"**Цена:** {price}\n**Продавец:** {seller}",
         f"**Ссылка:** {url}",
@@ -94,10 +100,13 @@ def build_issue_body(post: dict) -> str:
 def notify_new_post(post: dict) -> None:
     title = post.get("title") or "(без заголовка)"
     notify_user = os.environ.get("GITHUB_NOTIFY_USER", "")
+    filter_prefix = ""
+    if post.get("matched_filters"):
+        filter_prefix = f"[{', '.join(post['matched_filters'])}] "
 
     send_telegram(build_telegram_message(post))
 
     issue_body = build_issue_body(post)
     if notify_user:
         issue_body += f"\n\n@{notify_user}"
-    create_github_issue(f"Новое объявление: {title}", issue_body)
+    create_github_issue(f"{filter_prefix}Новое объявление: {title}", issue_body)

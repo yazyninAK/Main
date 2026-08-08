@@ -69,19 +69,29 @@ def numeric_id(post: dict) -> int | None:
         return None
 
 
-def matches_filters(text: str, config: dict) -> bool:
+def matches_filters(text: str, profile: dict) -> bool:
     haystack = text.lower()
 
-    exclude_any = config.get("exclude_any", [])
+    exclude_any = profile.get("exclude_any", [])
     if any(word.lower() in haystack for word in exclude_any):
         return False
 
-    for group in config.get("must_include", []):
+    for group in profile.get("must_include", []):
         candidates = group.get("any_of", [])
         if not any(word.lower() in haystack for word in candidates):
             return False
 
     return True
+
+
+def matched_filter_names(text: str, filters: list[dict]) -> list[str]:
+    """Names of every filter profile (from config.yaml `filters:`) that
+    this text matches. A post can match more than one profile."""
+    names = []
+    for profile in filters:
+        if matches_filters(text, profile) and matches_criteria(text, profile.get("criteria", {})):
+            names.append(profile.get("name", "(без имени)"))
+    return names
 
 
 def main() -> None:
@@ -115,9 +125,9 @@ def main() -> None:
                 detail_text = ""
             post["text"] = f"{post['title']} {detail_text}"
 
-            if matches_filters(post["text"], config) and matches_criteria(
-                post["text"], config.get("criteria", {})
-            ):
+            names = matched_filter_names(post["text"], config.get("filters", []))
+            if names:
+                post["matched_filters"] = names
                 matched.append(post)
 
             time.sleep(DETAIL_FETCH_DELAY_SECONDS)
