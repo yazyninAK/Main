@@ -1,83 +1,84 @@
-"""Fetch and parse post listings from 2bike.rs (cikloberza mali oglasi)."""
+"""Fetch and parse post listings from 2bike.rs (cikloberza mali oglasi).
+
+The site sits behind Cloudflare, which serves a JavaScript proof-of-work
+challenge ("Just a moment...") to plain HTTP clients like `requests` -
+those can never pass it, since they don't execute JS. So pages are
+fetched with a real (headless) browser via Playwright instead, which
+executes the challenge's JS like a normal visitor would.
+"""
 from __future__ import annotations
 
 import re
-import time
 from urllib.parse import urlencode
 
-import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 BASE_URL = "https://2bike.rs"
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    ),
-    "Accept": (
-        "text/html,application/xhtml+xml,application/xml;q=0.9,"
-        "image/avif,image/webp,*/*;q=0.8"
-    ),
-    "Accept-Language": "sr-RS,sr;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-}
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 FAV_ID_RE = re.compile(r"add_favorite_classified/(\d+)")
 
-# A shared session persists cookies (some sites gate real pages behind a
-# cookie set on the first visit) and TCP connections across all requests
-# made in one script run.
-_session = requests.Session()
-_session.headers.update(HEADERS)
-_warmed_up = False
+_playwright = None
+_browser = None
+_context = None
 
 
-def _debug_response(resp: requests.Response) -> None:
-    """Print diagnostic info on a failed response, to tell apart a WAF/CDN
-    block (Cloudflare etc.) from a plain server-side 403."""
-    interesting_headers = {
-        k: v
-        for k, v in resp.headers.items()
-        if k.lower() in ("server", "cf-ray", "cf-mitigated", "x-sucuri-id", "content-type")
-    }
-    print(f"DEBUG: {resp.request.method} {resp.url} -> {resp.status_code}")
-    print(f"DEBUG: response headers of interest: {interesting_headers}")
-    print(f"DEBUG: body snippet: {resp.text[:500]!r}")
-
-
-def _warm_up() -> None:
-    """Visit the homepage once per run before hitting category/detail pages,
-    so any cookie the site sets on first contact is already in the session."""
-    global _warmed_up
-    if _warmed_up:
+def _ensure_browser() -> None:
+    global _playwright, _browser, _context
+    if _context is not None:
         return
+    _playwright = sync_playwright().start()
+    _browser = _playwright.chromium.launch(headless=True)
+    _context = _browser.new_context(
+        user_agent=USER_AGENT,
+        viewport={"width": 1366, "height": 768},
+        locale="sr-RS",
+    )
+
+
+def close_browser() -> None:
+    """Call once at the end of a script run to release browser resources."""
+    global _playwright, _browser, _context
+    if _context is not None:
+        _context.close()
+    if _browser is not None:
+        _browser.close()
+    if _playwright is not None:
+        _playwright.stop()
+    _playwright = _browser = _context = None
+
+
+def _get_html(url: str, wait_selector: str, timeout_ms: int = 45000) -> str:
+    """Load a page with a real browser, waiting out Cloudflare's JS
+    challenge if one appears, and return the final rendered HTML."""
+    _ensure_browser()
+    page = _context.new_page()
     try:
-        resp = _session.get(BASE_URL, timeout=30)
-        print(f"DEBUG: warm-up GET {BASE_URL} -> {resp.status_code}")
-        if not resp.ok:
-            _debug_response(resp)
-    except requests.RequestException as exc:
-        print(f"DEBUG: warm-up request failed: {exc}")
-    _warmed_up = True
-
-
-def _get(url: str, retries: int = 2, backoff_seconds: float = 3.0) -> requests.Response:
-    _warm_up()
-    last_exc: Exception | None = None
-    for attempt in range(retries + 1):
+        page.goto(url, timeout=timeout_ms, wait_until="load")
+        for _ in range(4):
+            if "Just a moment" not in page.title():
+                break
+            page.wait_for_timeout(5000)
+            try:
+                page.reload(wait_until="load", timeout=timeout_ms)
+            except PlaywrightTimeoutError:
+                break
         try:
-            resp = _session.get(url, headers={"Referer": BASE_URL + "/"}, timeout=30)
-            if not resp.ok:
-                _debug_response(resp)
-            resp.raise_for_status()
-            return resp
-        except requests.RequestException as exc:
-            last_exc = exc
-            if attempt < retries:
-                time.sleep(backoff_seconds * (attempt + 1))
-    raise last_exc  # type: ignore[misc]
+            page.wait_for_selector(wait_selector, timeout=15000)
+        except PlaywrightTimeoutError:
+            pass
+        return page.content()
+    except PlaywrightError as exc:
+        raise RuntimeError(f"Failed to load {url}: {exc}") from exc
+    finally:
+        page.close()
 
 
 def _absolute_url(href: str) -> str:
@@ -161,8 +162,8 @@ def fetch_posts(url: str) -> list[dict]:
     The listing is sorted by "date posted/renewed" descending by default,
     so new posts appear at the top of page 1.
     """
-    resp = _get(url)
-    soup = BeautifulSoup(resp.text, "lxml")
+    html = _get_html(url, wait_selector="ul.itemsGrid")
+    soup = BeautifulSoup(html, "lxml")
 
     posts = []
     for item in soup.select("ul.itemsGrid > li"):
@@ -203,8 +204,8 @@ def fetch_posts(url: str) -> list[dict]:
 
 def fetch_detail_text(url: str) -> str:
     """Return the visible text of a single ad's page, for keyword matching."""
-    resp = _get(url)
-    soup = BeautifulSoup(resp.text, "lxml")
+    html = _get_html(url, wait_selector="body")
+    soup = BeautifulSoup(html, "lxml")
 
     for tag in soup(["script", "style", "nav", "header", "footer"]):
         tag.decompose()

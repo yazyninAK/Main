@@ -19,12 +19,12 @@ import yaml
 from criteria import matches_criteria, parse_price_eur
 from main import matches_filters
 from notify import notify_digest
-from scraper import build_listing_url, fetch_detail_text, fetch_posts, page_url
+from scraper import build_listing_url, close_browser, fetch_detail_text, fetch_posts, page_url
 
 CONFIG_PATH = "config.yaml"
 FILTER_NAME = os.environ.get("SCAN_FILTER_NAME", "Карбоновый Мтб до 1000е")
 MAX_PAGES = int(os.environ.get("SCAN_MAX_PAGES", "15"))
-DETAIL_FETCH_DELAY_SECONDS = 1.5
+DETAIL_FETCH_DELAY_SECONDS = 0.5
 
 
 def load_profile(name: str) -> dict:
@@ -55,25 +55,28 @@ def main() -> None:
 
     matches: list[dict] = []
     total_scanned = 0
-    for page in range(1, MAX_PAGES + 1):
-        posts = fetch_posts(page_url(url, page))
-        if not posts:
-            break
-        for post in posts:
-            total_scanned += 1
-            if quick_reject(post, criteria):
-                continue
-            try:
-                detail_text = fetch_detail_text(post["url"])
-            except Exception as exc:  # noqa: BLE001 - keep scanning the rest
-                print(f"Failed to fetch detail page for {post['url']}: {exc}")
-                detail_text = ""
-            post["text"] = f"{post['title']} {detail_text}"
+    try:
+        for page in range(1, MAX_PAGES + 1):
+            posts = fetch_posts(page_url(url, page))
+            if not posts:
+                break
+            for post in posts:
+                total_scanned += 1
+                if quick_reject(post, criteria):
+                    continue
+                try:
+                    detail_text = fetch_detail_text(post["url"])
+                except Exception as exc:  # noqa: BLE001 - keep scanning the rest
+                    print(f"Failed to fetch detail page for {post['url']}: {exc}")
+                    detail_text = ""
+                post["text"] = f"{post['title']} {detail_text}"
 
-            if matches_filters(post["text"], profile) and matches_criteria(post, criteria):
-                matches.append(post)
+                if matches_filters(post["text"], profile) and matches_criteria(post, criteria):
+                    matches.append(post)
 
-            time.sleep(DETAIL_FETCH_DELAY_SECONDS)
+                time.sleep(DETAIL_FETCH_DELAY_SECONDS)
+    finally:
+        close_browser()
 
     print(f"Scanned {total_scanned} listings across up to {MAX_PAGES} pages, {len(matches)} matched '{FILTER_NAME}'.")
     digest_title = f"Скан: {FILTER_NAME} (последние ~{total_scanned} объявлений в категории)"

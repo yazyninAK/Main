@@ -9,7 +9,7 @@ import yaml
 
 from criteria import matches_criteria
 from notify import notify_new_post
-from scraper import build_listing_url, fetch_detail_text, fetch_posts, page_url
+from scraper import build_listing_url, close_browser, fetch_detail_text, fetch_posts, page_url
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"
@@ -18,7 +18,9 @@ STATE_PATH = ROOT / "data" / "seen.json"
 # Safety cap on how many new posts get a detail-page fetch in one run,
 # to avoid hammering the site if a lot of new posts appear at once.
 MAX_DETAIL_FETCHES_PER_RUN = 30
-DETAIL_FETCH_DELAY_SECONDS = 1.5
+# Fetches now go through a real browser (page load itself takes a few
+# seconds), so this is just a small courtesy pause, not the main throttle.
+DETAIL_FETCH_DELAY_SECONDS = 0.5
 
 # Listing is sorted by "date renewed/bumped" (not by creation date), so we
 # page forward only until we hit a post we've already recorded, or run out
@@ -110,40 +112,44 @@ def main() -> None:
     is_first_run = not STATE_PATH.exists()
     seen_ids, max_known_id = load_state()
 
-    posts = fetch_posts_for_all_filters(config.get("filters", []), seen_ids)
+    try:
+        posts = fetch_posts_for_all_filters(config.get("filters", []), seen_ids)
 
-    # A post only counts as genuinely new if we haven't recorded its id
-    # before AND its id is higher than any id we've seen so far. The second
-    # condition weeds out old ads that were merely renewed/bumped back to
-    # the top of the (renewal-sorted) listing — those aren't "new posts".
-    genuinely_new = [
-        p
-        for p in posts
-        if p["id"] not in seen_ids
-        and (numeric_id(p) is None or numeric_id(p) > max_known_id)
-    ]
+        # A post only counts as genuinely new if we haven't recorded its id
+        # before AND its id is higher than any id we've seen so far. The
+        # second condition weeds out old ads that were merely renewed/bumped
+        # back to the top of the (renewal-sorted) listing — those aren't
+        # "new posts".
+        genuinely_new = [
+            p
+            for p in posts
+            if p["id"] not in seen_ids
+            and (numeric_id(p) is None or numeric_id(p) > max_known_id)
+        ]
 
-    matched = []
-    if is_first_run:
-        print("First run: establishing baseline, no notifications will be sent.")
-    else:
-        for post in genuinely_new[:MAX_DETAIL_FETCHES_PER_RUN]:
-            try:
-                detail_text = fetch_detail_text(post["url"])
-            except Exception as exc:  # noqa: BLE001 - keep the run going for other posts
-                print(f"Failed to fetch detail page for {post['url']}: {exc}")
-                detail_text = ""
-            post["text"] = f"{post['title']} {detail_text}"
+        matched = []
+        if is_first_run:
+            print("First run: establishing baseline, no notifications will be sent.")
+        else:
+            for post in genuinely_new[:MAX_DETAIL_FETCHES_PER_RUN]:
+                try:
+                    detail_text = fetch_detail_text(post["url"])
+                except Exception as exc:  # noqa: BLE001 - keep the run going for other posts
+                    print(f"Failed to fetch detail page for {post['url']}: {exc}")
+                    detail_text = ""
+                post["text"] = f"{post['title']} {detail_text}"
 
-            names = matched_filter_names(post, config.get("filters", []))
-            if names:
-                post["matched_filters"] = names
-                matched.append(post)
+                names = matched_filter_names(post, config.get("filters", []))
+                if names:
+                    post["matched_filters"] = names
+                    matched.append(post)
 
-            time.sleep(DETAIL_FETCH_DELAY_SECONDS)
+                time.sleep(DETAIL_FETCH_DELAY_SECONDS)
 
-        for post in matched:
-            notify_new_post(post)
+            for post in matched:
+                notify_new_post(post)
+    finally:
+        close_browser()
 
     # Record everything we fetched (matched or not, new or just a bumped
     # old ad) so future runs don't re-check or re-notify about it.
