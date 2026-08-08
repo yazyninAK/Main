@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from urllib.parse import urlencode
 
 import requests
@@ -13,10 +14,52 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    )
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "sr-RS,sr;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 FAV_ID_RE = re.compile(r"add_favorite_classified/(\d+)")
+
+# A shared session persists cookies (some sites gate real pages behind a
+# cookie set on the first visit) and TCP connections across all requests
+# made in one script run.
+_session = requests.Session()
+_session.headers.update(HEADERS)
+_warmed_up = False
+
+
+def _warm_up() -> None:
+    """Visit the homepage once per run before hitting category/detail pages,
+    so any cookie the site sets on first contact is already in the session."""
+    global _warmed_up
+    if _warmed_up:
+        return
+    try:
+        _session.get(BASE_URL, timeout=30)
+    except requests.RequestException:
+        pass
+    _warmed_up = True
+
+
+def _get(url: str, retries: int = 2, backoff_seconds: float = 3.0) -> requests.Response:
+    _warm_up()
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            resp = _session.get(url, headers={"Referer": BASE_URL + "/"}, timeout=30)
+            resp.raise_for_status()
+            return resp
+        except requests.RequestException as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(backoff_seconds * (attempt + 1))
+    raise last_exc  # type: ignore[misc]
 
 
 def _absolute_url(href: str) -> str:
@@ -100,8 +143,7 @@ def fetch_posts(url: str) -> list[dict]:
     The listing is sorted by "date posted/renewed" descending by default,
     so new posts appear at the top of page 1.
     """
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
+    resp = _get(url)
     soup = BeautifulSoup(resp.text, "lxml")
 
     posts = []
@@ -143,8 +185,7 @@ def fetch_posts(url: str) -> list[dict]:
 
 def fetch_detail_text(url: str) -> str:
     """Return the visible text of a single ad's page, for keyword matching."""
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
+    resp = _get(url)
     soup = BeautifulSoup(resp.text, "lxml")
 
     for tag in soup(["script", "style", "nav", "header", "footer"]):
