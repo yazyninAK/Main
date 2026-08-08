@@ -62,18 +62,24 @@ def _get_html(url: str, wait_selector: str, timeout_ms: int = 45000) -> str:
     page = _context.new_page()
     try:
         page.goto(url, timeout=timeout_ms, wait_until="load")
-        for _ in range(4):
+        print(f"DEBUG: goto {url} -> title={page.title()!r}")
+        for attempt in range(4):
             if "Just a moment" not in page.title():
                 break
+            print(f"DEBUG: still on challenge page (attempt {attempt + 1}/4), waiting + reloading")
             page.wait_for_timeout(5000)
             try:
                 page.reload(wait_until="load", timeout=timeout_ms)
+                print(f"DEBUG: after reload -> title={page.title()!r}")
             except PlaywrightTimeoutError:
                 break
         try:
             page.wait_for_selector(wait_selector, timeout=15000)
         except PlaywrightTimeoutError:
-            pass
+            print(
+                f"DEBUG: wait_for_selector({wait_selector!r}) timed out; "
+                f"final title={page.title()!r}, body snippet={page.content()[:500]!r}"
+            )
         return page.content()
     except PlaywrightError as exc:
         raise RuntimeError(f"Failed to load {url}: {exc}") from exc
