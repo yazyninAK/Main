@@ -1,8 +1,9 @@
 # Мониторинг объявлений (mali oglasi)
 
 Автоматическая проверка новых объявлений на https://2bike.rs/cikloberza/mali-oglasi,
-фильтрация по критериям и уведомления в Telegram и на почту. Работает бесплатно
-и автономно через GitHub Actions (cron), без сервера и без API сайта.
+фильтрация по критериям и уведомления в Telegram и по email (через GitHub Issues,
+см. ниже). Работает бесплатно и автономно через GitHub Actions (cron), без сервера
+и без API сайта.
 
 ## Как это работает
 
@@ -12,7 +13,9 @@
 2. `scripts/scraper.py` скачивает страницу и парсит список объявлений.
 3. Объявления сравниваются с `data/seen.json` (уже виденные) — новые проверяются
    по фильтрам из `config.yaml`.
-4. При совпадении — уведомление в Telegram и на email через `scripts/notify.py`.
+4. При совпадении — уведомление в Telegram и создание GitHub Issue (с
+   упоминанием вас) через `scripts/notify.py`; GitHub Issue приходит вам
+   на почту как обычное уведомление GitHub.
 5. `data/seen.json` коммитится обратно в репозиторий, чтобы состояние сохранялось
    между запусками.
 
@@ -71,26 +74,34 @@ site:
 запроса к сайту для определения id города) — скажите, если понадобится,
 добавлю.
 
-### 2. Секреты репозитория
+### 2. Уведомления
 
-В настройках репозитория: **Settings → Secrets and variables → Actions → New repository secret**
+**Telegram** — нужны 2 секрета репозитория: **Settings → Secrets and
+variables → Actions → New repository secret**
 
 | Секрет | Значение |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Токен бота от @BotFather |
 | `TELEGRAM_CHAT_ID` | Ваш chat_id (см. ниже, как получить) |
-| `GMAIL_ADDRESS` | Ваш Gmail-адрес (отправитель) |
-| `GMAIL_APP_PASSWORD` | App Password Google-аккаунта (не обычный пароль) |
-| `NOTIFY_EMAIL_TO` | Куда слать письма (можно тот же Gmail-адрес) |
 
-**Telegram bot + chat_id:**
 1. В Telegram: `@BotFather` → `/newbot` → получить token
 2. Написать боту любое сообщение
 3. Открыть `https://api.telegram.org/bot<TOKEN>/getUpdates`, найти `"chat":{"id":...}`
 
-**Gmail App Password:**
-1. Включить 2FA: https://myaccount.google.com/security
-2. Создать пароль приложения: https://myaccount.google.com/apppasswords
+**Email** — отдельных секретов не нужно. Вместо SMTP-пароля скрипт
+создаёт GitHub Issue в этом репозитории на каждое подходящее объявление,
+с упоминанием `@<владелец репозитория>` в тексте — GitHub сам присылает
+за это email на адрес, привязанный к вашему GitHub-аккаунту (обычная
+системная функция уведомлений GitHub, работает "из коробки"). Всё, что
+для этого нужно, у workflow уже есть автоматически (`GITHUB_TOKEN`,
+права `issues: write` в `.github/workflows/monitor.yml`).
+
+Убедитесь, что в настройках вашего GitHub-аккаунта включены email-уведомления
+для упоминаний: **Settings → Notifications → убедитесь, что "Email" отмечен
+для "Participating, @mentions and custom"**.
+
+Письмо будет выглядеть как обычное уведомление GitHub про issue, а не
+как отдельное красивое письмо — зато без единого пароля.
 
 ### 3. Запуск
 

@@ -1,9 +1,8 @@
-"""Send notifications via Telegram and email (Gmail SMTP)."""
+"""Send notifications via Telegram and a GitHub issue (for email, via
+GitHub's own notification emails - no SMTP credentials needed)."""
 from __future__ import annotations
 
 import os
-import smtplib
-from email.mime.text import MIMEText
 
 import requests
 
@@ -23,22 +22,30 @@ def send_telegram(text: str) -> None:
         print(f"Telegram notification failed: {resp.status_code} {resp.text}")
 
 
-def send_email(subject: str, body: str) -> None:
-    gmail_address = os.environ.get("GMAIL_ADDRESS")
-    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD")
-    to_address = os.environ.get("NOTIFY_EMAIL_TO", gmail_address)
-    if not gmail_address or not gmail_app_password or not to_address:
-        print("Email credentials missing, skipping email notification")
+def create_github_issue(title: str, body: str) -> None:
+    """Open a GitHub issue mentioning the repo owner.
+
+    GitHub emails the mentioned user automatically using its own
+    (already-authenticated) mail sender - no SMTP password or API key
+    needed on our side.
+    """
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        print("GITHUB_TOKEN/GITHUB_REPOSITORY missing, skipping issue notification")
         return
 
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = subject
-    msg["From"] = gmail_address
-    msg["To"] = to_address
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(gmail_address, gmail_app_password)
-        server.sendmail(gmail_address, [to_address], msg.as_string())
+    resp = requests.post(
+        f"https://api.github.com/repos/{repo}/issues",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        },
+        json={"title": title, "body": body, "labels": ["new-listing"]},
+        timeout=15,
+    )
+    if not resp.ok:
+        print(f"GitHub issue notification failed: {resp.status_code} {resp.text}")
 
 
 def notify_new_post(post: dict) -> None:
@@ -46,6 +53,7 @@ def notify_new_post(post: dict) -> None:
     url = post.get("url", "")
     price = post.get("price", "")
     seller = post.get("seller", "")
+    notify_user = os.environ.get("GITHUB_NOTIFY_USER", "")
 
     lines = ["Новое объявление:", title]
     if price:
@@ -56,4 +64,8 @@ def notify_new_post(post: dict) -> None:
 
     message = "\n".join(lines)
     send_telegram(message)
-    send_email(f"Новое объявление: {title}", message)
+
+    issue_body = message
+    if notify_user:
+        issue_body += f"\n\n@{notify_user}"
+    create_github_issue(f"Новое объявление: {title}", issue_body)
