@@ -8,6 +8,7 @@ executes the challenge's JS like a normal visitor would.
 """
 from __future__ import annotations
 
+import os
 import re
 from urllib.parse import urlencode
 
@@ -17,11 +18,6 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 BASE_URL = "https://2bike.rs"
-
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
 
 FAV_ID_RE = re.compile(r"add_favorite_classified/(\d+)")
 
@@ -35,9 +31,26 @@ def _ensure_browser() -> None:
     if _context is not None:
         return
     _playwright = sync_playwright().start()
-    _browser = _playwright.chromium.launch(headless=True)
+
+    # SCRAPER_HEADLESS=false shows the actual browser window - useful when
+    # running locally, since a visible window looks more like a normal
+    # visitor than headless mode (which is easier for anti-bot checks to
+    # detect via automation fingerprints).
+    headless = os.environ.get("SCRAPER_HEADLESS", "true").strip().lower() != "false"
+
+    # Prefer the machine's real installed Chrome (channel="chrome") over
+    # Playwright's bundled test build of Chromium - a real, regularly
+    # updated Chrome install is less distinguishable from an ordinary
+    # visitor. Falls back to the bundled Chromium if Chrome isn't installed.
+    try:
+        _browser = _playwright.chromium.launch(headless=headless, channel="chrome")
+    except PlaywrightError:
+        _browser = _playwright.chromium.launch(headless=headless)
+
+    # No custom user_agent override: let the launched browser report its
+    # own genuine identity rather than a hardcoded string that might not
+    # match its real internals.
     _context = _browser.new_context(
-        user_agent=USER_AGENT,
         viewport={"width": 1366, "height": 768},
         locale="sr-RS",
     )

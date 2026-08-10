@@ -8,8 +8,11 @@ import time
 import yaml
 
 from criteria import matches_criteria
+from env_file import load_env_file
 from notify import notify_new_post
 from scraper import build_listing_url, close_browser, fetch_detail_text, fetch_posts, page_url
+
+load_env_file()
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config.yaml"

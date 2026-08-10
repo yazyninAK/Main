@@ -3,7 +3,10 @@
 workflow's manual "test_notification" input to verify delivery end-to-end."""
 from __future__ import annotations
 
+from env_file import load_env_file
 from notify import notify_new_post
+
+load_env_file()
 
 TEST_POST = {
     "title": "Cube Reaction Pro 1x12 (XL) -800Wh,Cx5,Papiri,2026",

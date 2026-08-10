@@ -12,6 +12,7 @@ default sort) instead, which is an approximation, not an exact date filter.
 from __future__ import annotations
 
 import os
+import pathlib
 import time
 
 import yaml
@@ -21,7 +22,7 @@ from main import matches_filters
 from notify import notify_digest
 from scraper import build_listing_url, close_browser, fetch_detail_text, fetch_posts, page_url
 
-CONFIG_PATH = "config.yaml"
+CONFIG_PATH = pathlib.Path(__file__).resolve().parent.parent / "config.yaml"
 FILTER_NAME = os.environ.get("SCAN_FILTER_NAME", "Карбоновый Мтб до 1000е")
 MAX_PAGES = int(os.environ.get("SCAN_MAX_PAGES", "15"))
 DETAIL_FETCH_DELAY_SECONDS = 0.5
